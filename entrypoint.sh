@@ -53,6 +53,17 @@ if [ $wait_count -ge $max_wait ]; then
     exit 1
 fi
 
-# Start the RunPod handler in the foreground
-echo "[flux-fill-inpaint] Starting RunPod handler..."
-exec python /worker/handler.py
+# Detect environment: Serverless vs Pod
+if [ -n "$RUNPOD_ENDPOINT_ID" ]; then
+    # Serverless mode — handler must be the foreground process
+    echo "[flux-fill-inpaint] Serverless mode detected (endpoint: $RUNPOD_ENDPOINT_ID)"
+    echo "[flux-fill-inpaint] Starting RunPod handler..."
+    exec python /worker/handler.py
+else
+    # Pod mode — keep ComfyUI running, expose on port 8188
+    echo "[flux-fill-inpaint] Pod mode detected."
+    echo "[flux-fill-inpaint] ComfyUI is running on port 8188."
+    echo "[flux-fill-inpaint] Container will stay alive via ComfyUI process."
+    # Wait for ComfyUI (the background process) to exit
+    wait $COMFYUI_PID
+fi
