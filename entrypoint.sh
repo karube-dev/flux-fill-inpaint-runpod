@@ -1,8 +1,35 @@
 #!/bin/bash
 set -e
 
-echo "[flux-fill-inpaint] Starting ComfyUI in the background..."
+echo "[flux-fill-inpaint] Container startup..."
 
+# Ensure the FLUX.1 Fill model is present.
+# HF_TOKEN must be provided as a RunPod Environment Variable.
+MODEL_PATH="/ComfyUI/models/diffusion_models/flux1-fill-dev.safetensors"
+if [ ! -s "$MODEL_PATH" ]; then
+    if [ -z "$HF_TOKEN" ]; then
+        echo "[flux-fill-inpaint] ERROR: HF_TOKEN env var is not set."
+        echo "[flux-fill-inpaint] Set HF_TOKEN in RunPod Endpoint Environment Variables."
+        echo "[flux-fill-inpaint] Make sure you have accepted the license at:"
+        echo "[flux-fill-inpaint]   https://huggingface.co/black-forest-labs/FLUX.1-Fill-dev"
+        exit 1
+    fi
+    echo "[flux-fill-inpaint] Downloading FLUX.1 Fill [dev] (~23 GB)..."
+    mkdir -p "$(dirname "$MODEL_PATH")"
+    if ! huggingface-cli download black-forest-labs/FLUX.1-Fill-dev \
+            flux1-fill-dev.safetensors \
+            --local-dir /ComfyUI/models/diffusion_models \
+            --token "$HF_TOKEN"; then
+        echo "[flux-fill-inpaint] ERROR: model download failed. Check HF_TOKEN validity."
+        exit 1
+    fi
+    echo "[flux-fill-inpaint] Model download complete."
+else
+    echo "[flux-fill-inpaint] FLUX.1 Fill [dev] model already present."
+fi
+
+# Start ComfyUI in the background
+echo "[flux-fill-inpaint] Starting ComfyUI..."
 python /ComfyUI/main.py --listen --disable-auto-launch &
 
 COMFYUI_PID=$!
