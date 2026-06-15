@@ -12,19 +12,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps
-RUN pip install --upgrade pip \
-    && pip install -U "huggingface_hub[hf_transfer]" \
-    && pip install runpod websocket-client Pillow
+RUN pip install --upgrade pip --no-cache-dir \
+    && pip install --no-cache-dir \
+        "huggingface_hub[hf_transfer]" \
+        runpod \
+        websocket-client \
+        Pillow
 
 # ComfyUI
-RUN git clone https://github.com/comfyanonymous/ComfyUI.git /ComfyUI \
+RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git /ComfyUI \
     && cd /ComfyUI \
-    && pip install -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt
 
 # ComfyUI-Manager
-RUN git clone https://github.com/Comfy-Org/ComfyUI-Manager.git /ComfyUI/custom_nodes/ComfyUI-Manager \
+RUN git clone --depth 1 https://github.com/Comfy-Org/ComfyUI-Manager.git /ComfyUI/custom_nodes/ComfyUI-Manager \
     && cd /ComfyUI/custom_nodes/ComfyUI-Manager \
-    && pip install -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt
 
 # Prepare model directories
 RUN mkdir -p /ComfyUI/models/diffusion_models \
@@ -32,21 +35,23 @@ RUN mkdir -p /ComfyUI/models/diffusion_models \
              /ComfyUI/models/vae \
              /ComfyUI/models/clip_vision
 
-# Pre-download the public (non-gated) FLUX assets at build time.
-# These are not gated on Hugging Face and are safe to bake into the image.
-RUN wget -q --show-progress \
+# Pre-download public FLUX assets (t5xxl, clip_l, vae).
+# These are not gated on Hugging Face and safe to bake into the image.
+# Using aria2c-style parallel download for speed would require extra deps;
+# sequential wget is fine and keeps the Dockerfile simple.
+RUN wget -q \
         "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors" \
         -O /ComfyUI/models/text_encoders/t5xxl_fp16.safetensors \
-    && wget -q --show-progress \
+    && wget -q \
         "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors" \
         -O /ComfyUI/models/text_encoders/clip_l.safetensors \
-    && wget -q --show-progress \
+    && wget -q \
         "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors" \
         -O /ComfyUI/models/vae/ae.safetensors
 
-# The gated FLUX.1 Fill [dev] model is downloaded at container startup
-# (see /worker/entrypoint.sh) using the HF_TOKEN environment variable.
-# Set HF_TOKEN as a RunPod Environment Variable before deploying.
+# The gated FLUX.1 Fill [dev] diffusion model is downloaded at container
+# startup by /worker/entrypoint.sh using the HF_TOKEN env var.
+# Set HF_TOKEN as a RunPod Endpoint Environment Variable before deploying.
 
 # Copy worker source
 COPY . /worker
