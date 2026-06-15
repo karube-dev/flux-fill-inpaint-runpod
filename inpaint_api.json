@@ -1,0 +1,120 @@
+{
+  "3": {
+    "inputs": {
+      "unet_name": "flux1-fill-dev.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model (FLUX Fill)"
+    }
+  },
+  "4": {
+    "inputs": {
+      "clip_name1": "t5xxl_fp16.safetensors",
+      "clip_name2": "clip_l.safetensors",
+      "type": "flux"
+    },
+    "class_type": "DualCLIPLoader",
+    "_meta": {
+      "title": "Load CLIP (FLUX)"
+    }
+  },
+  "5": {
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE (FLUX)"
+    }
+  },
+  "6": {
+    "inputs": {
+      "image": "input.png",
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Input Image (mask = alpha channel)"
+    }
+  },
+  "7": {
+    "inputs": {
+      "text": "high quality, detailed, seamless, natural",
+      "clip": ["4", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive Prompt"
+    }
+  },
+  "8": {
+    "inputs": {
+      "text": "",
+      "clip": ["4", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Negative Prompt"
+    }
+  },
+  "9": {
+    "inputs": {
+      "pixels": ["6", 0],
+      "vae": ["5", 0]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode"
+    }
+  },
+  "10": {
+    "inputs": {
+      "latent": ["9", 0],
+      "mask": ["6", 1]
+    },
+    "class_type": "SetLatentNoiseMask",
+    "_meta": {
+      "title": "Set Latent Noise Mask"
+    }
+  },
+  "11": {
+    "inputs": {
+      "seed": 42,
+      "steps": 28,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["3", 0],
+      "positive": ["7", 0],
+      "negative": ["8", 0],
+      "latent_image": ["10", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler (Inpaint)"
+    }
+  },
+  "12": {
+    "inputs": {
+      "samples": ["11", 0],
+      "vae": ["5", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "13": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": ["12", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Inpainted Image"
+    }
+  }
+}

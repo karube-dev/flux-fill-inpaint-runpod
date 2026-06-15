@@ -1,0 +1,6 @@
+{
+  "title": "FLUX.1 Fill Inpainting",
+  "short_description": "Run FLUX.1 Fill [dev] inpainting on RunPod Serverless.",
+  "category": "image",
+  "description": "Inpaint images with FLUX.1 Fill [dev] (Black Forest Labs). Sends an image (plus optional mask) and a prompt to a ComfyUI workflow and returns the generated image as base64. Designed to be chained with the Wan_Animate_Runpod_hub endpoint."
+}
