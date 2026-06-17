@@ -46,4 +46,4 @@ RUN mv /worker/inpaint_api.json /inpaint_api.json \
 
 WORKDIR /
 
-CMD ["/bin/bash", "/worker/entrypoint.sh"]
+CMD ["/worker/entrypoint.sh"]
