@@ -7,25 +7,28 @@ echo "[flux-fill-inpaint] Starting ComfyUI..."
 python /ComfyUI/main.py --listen --disable-auto-launch &
 COMFYUI_PID=$!
 
-# Download FLUX.1 Fill model in the background (non-blocking)
-MODEL_PATH="/ComfyUI/models/diffusion_models/flux1-fill-dev.safetensors"
-if [ ! -s "$MODEL_PATH" ]; then
-    if [ -n "$HF_TOKEN" ]; then
-        echo "[flux-fill-inpaint] Background-downloading FLUX.1 Fill [dev] (~23 GB)..."
-        mkdir -p "$(dirname "$MODEL_PATH")"
-        (
-            huggingface-cli download black-forest-labs/FLUX.1-Fill-dev \
-                flux1-fill-dev.safetensors \
-                --local-dir /ComfyUI/models/diffusion_models \
-                --token "$HF_TOKEN" && \
-            echo "[flux-fill-inpaint] Model download complete."
-        ) &
-    else
-        echo "[flux-fill-inpaint] WARNING: HF_TOKEN not set — model will not be downloaded."
+# Download all models in the background (non-blocking)
+# t5xxl, clip_l, vae are public; flux1-fill-dev is gated (needs HF_TOKEN)
+echo "[flux-fill-inpaint] Background-downloading models..."
+(
+    wget -q "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors" \
+        -O /ComfyUI/models/text_encoders/t5xxl_fp16.safetensors &
+    wget -q "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors" \
+        -O /ComfyUI/models/text_encoders/clip_l.safetensors &
+    wget -q "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors" \
+        -O /ComfyUI/models/vae/ae.safetensors &
+    wait
+
+    MODEL_PATH="/ComfyUI/models/diffusion_models/flux1-fill-dev.safetensors"
+    if [ ! -s "$MODEL_PATH" ] && [ -n "$HF_TOKEN" ]; then
+        echo "[flux-fill-inpaint] Downloading FLUX.1 Fill [dev] (~23 GB)..."
+        huggingface-cli download black-forest-labs/FLUX.1-Fill-dev \
+            flux1-fill-dev.safetensors \
+            --local-dir /ComfyUI/models/diffusion_models \
+            --token "$HF_TOKEN"
+        echo "[flux-fill-inpaint] All models downloaded."
     fi
-else
-    echo "[flux-fill-inpaint] FLUX.1 Fill [dev] model already present."
-fi
+) &
 
 # Wait for the ComfyUI HTTP endpoint to come up
 echo "[flux-fill-inpaint] Waiting for ComfyUI to be ready..."

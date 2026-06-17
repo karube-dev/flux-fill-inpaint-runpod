@@ -35,23 +35,9 @@ RUN mkdir -p /ComfyUI/models/diffusion_models \
              /ComfyUI/models/vae \
              /ComfyUI/models/clip_vision
 
-# Pre-download public FLUX assets (t5xxl, clip_l, vae).
-# These are not gated on Hugging Face and safe to bake into the image.
-# Using aria2c-style parallel download for speed would require extra deps;
-# sequential wget is fine and keeps the Dockerfile simple.
-RUN wget -q \
-        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors" \
-        -O /ComfyUI/models/text_encoders/t5xxl_fp16.safetensors \
-    && wget -q \
-        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors" \
-        -O /ComfyUI/models/text_encoders/clip_l.safetensors \
-    && wget -q \
-        "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors" \
-        -O /ComfyUI/models/vae/ae.safetensors
-
-# The gated FLUX.1 Fill [dev] diffusion model is downloaded at container
-# startup by /worker/entrypoint.sh using the HF_TOKEN env var.
-# Set HF_TOKEN as a RunPod Endpoint Environment Variable before deploying.
+# All models (t5xxl, clip_l, vae, flux1-fill-dev) are downloaded at
+# container startup by /worker/entrypoint.sh using HF_TOKEN.
+# This keeps the image small for fast pulls.
 
 # Copy worker source
 COPY . /worker
