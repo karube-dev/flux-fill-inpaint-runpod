@@ -196,9 +196,37 @@ def build_prompt(
 # ---------------------------------------------------------------------------
 # RunPod entry point
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Lazy ComfyUI readiness check (called on first inference)
+# ---------------------------------------------------------------------------
+_COMFYUI_READY = False
+
+def _wait_comfyui_ready(timeout: int = 300):
+    global _COMFYUI_READY
+    if _COMFYUI_READY:
+        return
+    logger.info("Waiting for ComfyUI to become ready (timeout=%ds)...", timeout)
+    import requests as _requests
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            resp = _requests.get(f"http://{SERVER_ADDRESS}:8188/", timeout=5)
+            if resp.status_code == 200:
+                _COMFYUI_READY = True
+                logger.info("ComfyUI is ready.")
+                return
+        except Exception:
+            pass
+        time.sleep(2)
+    raise RuntimeError(f"ComfyUI did not become ready within {timeout}s")
+
+
 def handler(job: dict) -> dict:
     job_input = job.get("input") or {}
     logger.info("Received job input keys: %s", list(job_input.keys()))
+
+    # Ensure ComfyUI is up before processing the first job
+    _wait_comfyui_ready()
 
     # ------------------------------------------------------------------ input
     image_field = next(
