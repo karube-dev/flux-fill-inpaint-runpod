@@ -186,28 +186,50 @@ def build_prompt(
 
 
 # ---------------------------------------------------------------------------
-# Lazy ComfyUI readiness check (called on first inference)
+# Lazy readiness check (called on first inference)
 # ---------------------------------------------------------------------------
 _COMFYUI_READY = False
+_MODEL_DIR = "/ComfyUI/models"
 
-def _wait_comfyui_ready(timeout: int = 300):
+_REQUIRED_MODELS = [
+    "diffusion_models/flux1-fill-dev.safetensors",
+    "text_encoders/t5xxl_fp16.safetensors",
+    "text_encoders/clip_l.safetensors",
+    "vae/ae.safetensors",
+]
+
+def _wait_ready(timeout: int = 600):
     global _COMFYUI_READY
     if _COMFYUI_READY:
         return
-    logger.info("Waiting for ComfyUI to become ready (timeout=%ds)...", timeout)
-    import requests as _requests
+
     deadline = time.time() + timeout
+    import requests as _requests
+
+    # First wait for ComfyUI HTTP server
+    logger.info("Waiting for ComfyUI server (timeout=%ds)...", timeout)
     while time.time() < deadline:
         try:
             resp = _requests.get(f"http://{SERVER_ADDRESS}:8188/", timeout=5)
             if resp.status_code == 200:
-                _COMFYUI_READY = True
-                logger.info("ComfyUI is ready.")
-                return
+                logger.info("ComfyUI server is up.")
+                break
         except Exception:
             pass
         time.sleep(2)
-    raise RuntimeError(f"ComfyUI did not become ready within {timeout}s")
+
+    # Then wait for models to be available
+    logger.info("Checking model files...")
+    while time.time() < deadline:
+        missing = [m for m in _REQUIRED_MODELS if not os.path.isfile(os.path.join(_MODEL_DIR, m))]
+        if not missing:
+            logger.info("All models are present.")
+            _COMFYUI_READY = True
+            return
+        logger.info("Waiting for %d models: %s...", len(missing), ", ".join(m.split("/")[-1] for m in missing[:3]))
+        time.sleep(10)
+
+    raise RuntimeError(f"ComfyUI/models not ready within {timeout}s")
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +239,7 @@ def handler(job: dict) -> dict:
     job_input = job.get("input") or {}
     logger.info("Received job input keys: %s", list(job_input.keys()))
 
-    _wait_comfyui_ready()
+    _wait_ready()
 
     image_field = next(
         (k for k in ("image_path", "image_url", "image_base64") if k in job_input),

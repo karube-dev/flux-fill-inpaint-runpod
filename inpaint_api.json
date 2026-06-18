@@ -71,7 +71,7 @@
   },
   "10": {
     "inputs": {
-      "latent": ["9", 0],
+      "samples": ["9", 0],
       "mask": ["6", 1]
     },
     "class_type": "SetLatentNoiseMask",
