@@ -33,7 +33,6 @@ CLIENT_ID = str(uuid.uuid4())
 # I/O helpers (path / url / base64)
 # ---------------------------------------------------------------------------
 def _save_base64_to_file(data: str, out_path: str) -> str:
-    """Decode a (possibly data-URL-prefixed) base64 string and write to disk."""
     if data.startswith("data:") and "," in data:
         data = data.split(",", 1)[1]
     decoded = base64.b64decode(data)
@@ -44,7 +43,6 @@ def _save_base64_to_file(data: str, out_path: str) -> str:
 
 
 def _download_url_to_file(url: str, out_path: str) -> str:
-    """Use wget to download a file to a local path."""
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     result = subprocess.run(
         ["wget", "-O", out_path, "--no-verbose", url],
@@ -56,28 +54,18 @@ def _download_url_to_file(url: str, out_path: str) -> str:
 
 
 def resolve_input(value, dest_dir: str, dest_filename: str) -> str:
-    """
-    Accept one of:
-      - a local path that already exists on disk
-      - an http(s) URL
-      - a base64-encoded string (with or without data: prefix)
-    and return a local file path.
-    """
     if not isinstance(value, str):
         raise TypeError(f"Expected string input, got {type(value).__name__}")
 
     os.makedirs(dest_dir, exist_ok=True)
     target = os.path.abspath(os.path.join(dest_dir, dest_filename))
 
-    # 1. Already a local file?
     if os.path.isfile(value):
         return value
 
-    # 2. URL?
     if value.startswith("http://") or value.startswith("https://"):
         return _download_url_to_file(value, target)
 
-    # 3. Base64?
     try:
         return _save_base64_to_file(value, target)
     except (binascii.Error, ValueError) as exc:
@@ -93,19 +81,25 @@ def queue_prompt(prompt: dict) -> str:
     url = f"http://{SERVER_ADDRESS}:8188/prompt"
     logger.info("Queuing prompt to %s", url)
     body = json.dumps({"prompt": prompt, "client_id": CLIENT_ID}).encode("utf-8")
-    req = urllib.request.Request(url, data=body)
-    resp = json.loads(urllib.request.urlopen(req).read())
-    return resp["prompt_id"]
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        resp_body = resp.read().decode("utf-8")
+        if resp.status != 200:
+            raise RuntimeError(f"ComfyUI returned {resp.status}: {resp_body[:500]}")
+        data = json.loads(resp_body)
+        if "prompt_id" not in data:
+            raise RuntimeError(f"ComfyUI response missing prompt_id: {resp_body[:500]}")
+        return data["prompt_id"]
 
 
 def get_history(prompt_id: str) -> dict:
     url = f"http://{SERVER_ADDRESS}:8188/history/{prompt_id}"
-    with urllib.request.urlopen(url) as resp:
+    req = urllib.request.Request(url, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read())
 
 
 def wait_for_completion(prompt: dict, timeout: int = 1800) -> dict:
-    """Send the workflow and block until ComfyUI reports completion."""
     prompt_id = queue_prompt(prompt)
     ws = websocket.WebSocket()
     ws.connect(f"ws://{SERVER_ADDRESS}:8188/ws?clientId={CLIENT_ID}")
@@ -132,7 +126,6 @@ def wait_for_completion(prompt: dict, timeout: int = 1800) -> dict:
 
 
 def collect_outputs(history_entry: dict) -> list:
-    """Pull every saved image (and gifs) from a completed execution."""
     results = []
     for node_id, node_output in (history_entry.get("outputs") or {}).items():
         for image in node_output.get("images", []):
@@ -170,15 +163,8 @@ def build_prompt(
     scheduler: str,
     denoise: float,
 ) -> dict:
-    """
-    Wire input values into the workflow template. The node ids below match
-    the static workflow shipped in /inpaint_api.json.
-    """
-    prompt = json.loads(json.dumps(workflow))  # deep copy
+    prompt = json.loads(json.dumps(workflow))
 
-    # The ComfyUI LoadImage node expects the *basename* of a file in the
-    # input directory (or a subfolder). We ensure the file is in the
-    # input dir and use the basename.
     prompt["6"]["inputs"]["image"] = os.path.basename(image_path)
 
     prompt["7"]["inputs"]["text"] = prompt_text
@@ -193,9 +179,6 @@ def build_prompt(
     return prompt
 
 
-# ---------------------------------------------------------------------------
-# RunPod entry point
-# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Lazy ComfyUI readiness check (called on first inference)
 # ---------------------------------------------------------------------------
@@ -221,14 +204,15 @@ def _wait_comfyui_ready(timeout: int = 300):
     raise RuntimeError(f"ComfyUI did not become ready within {timeout}s")
 
 
+# ---------------------------------------------------------------------------
+# RunPod entry point
+# ---------------------------------------------------------------------------
 def handler(job: dict) -> dict:
     job_input = job.get("input") or {}
     logger.info("Received job input keys: %s", list(job_input.keys()))
 
-    # Ensure ComfyUI is up before processing the first job
     _wait_comfyui_ready()
 
-    # ------------------------------------------------------------------ input
     image_field = next(
         (k for k in ("image_path", "image_url", "image_base64") if k in job_input),
         None,
@@ -238,10 +222,6 @@ def handler(job: dict) -> dict:
             "Image is required. Provide one of: image_path, image_url, image_base64"
         )
 
-    # ComfyUI's LoadImage treats the alpha channel of a PNG as the mask.
-    # Users either supply a PNG with a mask baked into alpha, or they
-    # supply a separate mask via mask_base64 / mask_url / mask_path and we
-    # composite it onto the image before handing it to ComfyUI.
     tmp_dir = f"/tmp/inpaint_{uuid.uuid4().hex}"
     os.makedirs(tmp_dir, exist_ok=True)
     image_path = resolve_input(job_input[image_field], tmp_dir, "input.png")
@@ -256,7 +236,6 @@ def handler(job: dict) -> dict:
     if not os.path.isfile(image_path):
         raise FileNotFoundError(f"Could not resolve input image at {image_path}")
 
-    # ----------------------------------------------------------- parameters
     prompt_text = job_input.get("prompt", "high quality, detailed, seamless, natural")
     negative_text = job_input.get("negative_prompt", "")
     seed = int(job_input.get("seed", 12345))
@@ -266,8 +245,6 @@ def handler(job: dict) -> dict:
     scheduler = job_input.get("scheduler", "simple")
     denoise = float(job_input.get("denoise", 1.0))
 
-    # Also drop the prepared file into ComfyUI's input directory so the
-    # LoadImage node can find it by basename.
     comfy_input_target = os.path.join(COMFYUI_INPUT_DIR, os.path.basename(image_path))
     if os.path.abspath(image_path) != os.path.abspath(comfy_input_target):
         os.makedirs(COMFYUI_INPUT_DIR, exist_ok=True)
@@ -275,7 +252,6 @@ def handler(job: dict) -> dict:
             dst.write(src.read())
         image_path = comfy_input_target
 
-    # ------------------------------------------------------------------ run
     workflow = load_workflow()
     prompt = build_prompt(
         workflow,
@@ -306,11 +282,6 @@ def handler(job: dict) -> dict:
 
 
 def _compose_alpha_mask(image_path: str, mask_path: str, work_dir: str) -> str:
-    """
-    Combine an image and a single-channel mask PNG into one RGBA PNG whose
-    alpha channel equals the mask. ComfyUI's LoadImage reads the alpha
-    channel as the inpaint mask.
-    """
     from PIL import Image
 
     img = Image.open(image_path).convert("RGBA")
@@ -319,7 +290,6 @@ def _compose_alpha_mask(image_path: str, mask_path: str, work_dir: str) -> str:
     if mask.size != img.size:
         mask = mask.resize(img.size, Image.BILINEAR)
 
-    # Threshold to clean up anti-aliased edges
     mask = mask.point(lambda v: 255 if v > 128 else 0)
 
     r, g, b, _ = img.split()
@@ -329,4 +299,5 @@ def _compose_alpha_mask(image_path: str, mask_path: str, work_dir: str) -> str:
     return target
 
 
+logger.info("Starting RunPod serverless worker...")
 runpod.serverless.start({"handler": handler})
