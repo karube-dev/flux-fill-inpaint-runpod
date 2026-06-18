@@ -1,34 +1,38 @@
 #!/bin/bash
+set -e
 
 echo "[flux-fill-inpaint] Container startup..."
 
-# Start ComfyUI in the background first (fast startup, no model DL blocking)
-echo "[flux-fill-inpaint] Starting ComfyUI..."
-python /ComfyUI/main.py --listen --disable-auto-launch &
-COMFYUI_PID=$!
-
-# Download all models in the background (non-blocking)
-# t5xxl, clip_l, vae are public; flux1-fill-dev is gated (needs HF_TOKEN)
-echo "[flux-fill-inpaint] Background-downloading models..."
-(
-    wget -q "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors" \
-        -O /ComfyUI/models/text_encoders/t5xxl_fp16.safetensors &
-    wget -q "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors" \
-        -O /ComfyUI/models/text_encoders/clip_l.safetensors &
-    wget -q "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors" \
-        -O /ComfyUI/models/vae/ae.safetensors &
-    wait
-
-    MODEL_PATH="/ComfyUI/models/diffusion_models/flux1-fill-dev.safetensors"
-    if [ ! -s "$MODEL_PATH" ] && [ -n "$HF_TOKEN" ]; then
-        echo "[flux-fill-inpaint] Downloading FLUX.1 Fill [dev] (~23 GB)..."
-        huggingface-cli download black-forest-labs/FLUX.1-Fill-dev \
+# Ensure the FLUX.1 Fill model is present.
+# HF_TOKEN must be provided as a RunPod Environment Variable.
+MODEL_PATH="/ComfyUI/models/diffusion_models/flux1-fill-dev.safetensors"
+if [ ! -s "$MODEL_PATH" ]; then
+    if [ -z "$HF_TOKEN" ]; then
+        echo "[flux-fill-inpaint] ERROR: HF_TOKEN env var is not set."
+        echo "[flux-fill-inpaint] Set HF_TOKEN in RunPod Endpoint Environment Variables."
+        echo "[flux-fill-inpaint] Make sure you have accepted the license at:"
+        echo "[flux-fill-inpaint]   https://huggingface.co/black-forest-labs/FLUX.1-Fill-dev"
+        exit 1
+    fi
+    echo "[flux-fill-inpaint] Downloading FLUX.1 Fill [dev] (~23 GB)..."
+    mkdir -p "$(dirname "$MODEL_PATH")"
+    if ! huggingface-cli download black-forest-labs/FLUX.1-Fill-dev \
             flux1-fill-dev.safetensors \
             --local-dir /ComfyUI/models/diffusion_models \
-            --token "$HF_TOKEN"
-        echo "[flux-fill-inpaint] All models downloaded."
+            --token "$HF_TOKEN"; then
+        echo "[flux-fill-inpaint] ERROR: model download failed. Check HF_TOKEN validity."
+        exit 1
     fi
-) &
+    echo "[flux-fill-inpaint] Model download complete."
+else
+    echo "[flux-fill-inpaint] FLUX.1 Fill [dev] model already present."
+fi
+
+# Start ComfyUI in the background
+echo "[flux-fill-inpaint] Starting ComfyUI..."
+python /ComfyUI/main.py --listen --disable-auto-launch &
+
+COMFYUI_PID=$!
 
 # Wait for the ComfyUI HTTP endpoint to come up
 echo "[flux-fill-inpaint] Waiting for ComfyUI to be ready..."
