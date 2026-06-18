@@ -33,9 +33,12 @@ RUN mkdir -p /ComfyUI/models/diffusion_models \
              /ComfyUI/models/clip_vision
 
 # Pre-download public (non-gated) FLUX text encoders at build time.
-RUN huggingface-cli download comfyanonymous/flux_text_encoders \
-        t5xxl_fp16.safetensors clip_l.safetensors \
-        --local-dir /ComfyUI/models/text_encoders
+RUN wget -q --show-progress \
+        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors" \
+        -O /ComfyUI/models/text_encoders/t5xxl_fp16.safetensors \
+    && wget -q --show-progress \
+        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors" \
+        -O /ComfyUI/models/text_encoders/clip_l.safetensors
 
 # The gated FLUX.1 Fill [dev] model is downloaded at container startup
 # (see /worker/entrypoint.sh) using the HF_TOKEN environment variable.
