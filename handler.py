@@ -371,5 +371,28 @@ def _compose_alpha_mask(image_path: str, mask_path: str, work_dir: str) -> str:
     return target
 
 
+# ---------------------------------------------------------------------------
+# Wait for RUNPOD_WEBHOOK_GET_JOB environment variable
+# ---------------------------------------------------------------------------
+def _wait_for_runpod_env(timeout: int = 120):
+    """Wait for RUNPOD_WEBHOOK_GET_JOB env var to be injected by RunPod Serverless.
+    
+    RunPod Serverless injects this env var before starting the container.
+    If not present, runpod.serverless.start() thinks it's running locally
+    and tries to load test_input.json, which doesn't exist, causing sys.exit(1).
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if os.getenv("RUNPOD_WEBHOOK_GET_JOB"):
+            logger.info("RUNPOD_WEBHOOK_GET_JOB is set. Starting serverless worker...")
+            return True
+        logger.info("Waiting for RUNPOD_WEBHOOK_GET_JOB env var... (%.0fs remaining)", deadline - time.time())
+        time.sleep(2)
+    
+    logger.warning("RUNPOD_WEBHOOK_GET_JOB not set after %ds. Proceeding anyway...", timeout)
+    return False
+
+
 logger.info("Starting RunPod serverless worker...")
+_wait_for_runpod_env()
 runpod.serverless.start({"handler": handler})
