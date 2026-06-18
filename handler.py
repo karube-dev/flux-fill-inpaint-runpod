@@ -186,19 +186,63 @@ def build_prompt(
 
 
 # ---------------------------------------------------------------------------
-# Lazy readiness check (called on first inference)
+# Lazy readiness check + model download (called on first inference)
 # ---------------------------------------------------------------------------
 _COMFYUI_READY = False
 _MODEL_DIR = "/ComfyUI/models"
 
-_REQUIRED_MODELS = [
-    "diffusion_models/flux1-fill-dev.safetensors",
-    "text_encoders/t5xxl_fp16.safetensors",
-    "text_encoders/clip_l.safetensors",
-    "vae/ae.safetensors",
-]
+_REQUIRED_MODELS = {
+    "diffusion_models/flux1-fill-dev.safetensors": {
+        "repo": "black-forest-labs/FLUX.1-Fill-dev",
+        "file": "flux1-fill-dev.safetensors",
+    },
+    "text_encoders/t5xxl_fp16.safetensors": {
+        "repo": "comfyanonymous/flux_text_encoders",
+        "file": "t5xxl_fp16.safetensors",
+    },
+    "text_encoders/clip_l.safetensors": {
+        "repo": "comfyanonymous/flux_text_encoders",
+        "file": "clip_l.safetensors",
+    },
+    "vae/ae.safetensors": {
+        "repo": "black-forest-labs/FLUX.1-dev",
+        "file": "ae.safetensors",
+    },
+}
 
-def _wait_ready(timeout: int = 600):
+def _download_model(rel_path: str, info: dict):
+    """Download a single model via huggingface_hub. Returns True on success."""
+    from huggingface_hub import hf_hub_download
+    dest_dir = os.path.join(_MODEL_DIR, os.path.dirname(rel_path))
+    dest_file = os.path.join(_MODEL_DIR, rel_path)
+    token = os.environ.get("HF_TOKEN")
+
+    if os.path.isfile(dest_file) and os.path.getsize(dest_file) > 0:
+        return True
+
+    os.makedirs(dest_dir, exist_ok=True)
+    logger.info("Downloading %s from %s...", info["file"], info["repo"])
+    try:
+        downloaded = hf_hub_download(
+            repo_id=info["repo"],
+            filename=info["file"],
+            local_dir_use_symlinks=False,
+            local_dir=dest_dir,
+            token=token,
+        )
+        if os.path.isfile(downloaded):
+            # Ensure the file is at the expected path
+            if os.path.abspath(downloaded) != os.path.abspath(dest_file):
+                import shutil
+                shutil.copy2(downloaded, dest_file)
+            logger.info("Downloaded %s (%d MB)", rel_path, os.path.getsize(dest_file) // (1024 * 1024))
+            return True
+    except Exception as e:
+        logger.error("Failed to download %s: %s", rel_path, e)
+    return False
+
+
+def _wait_ready(timeout: int = 1200):
     global _COMFYUI_READY
     if _COMFYUI_READY:
         return
@@ -206,7 +250,7 @@ def _wait_ready(timeout: int = 600):
     deadline = time.time() + timeout
     import requests as _requests
 
-    # First wait for ComfyUI HTTP server
+    # Wait for ComfyUI HTTP server
     logger.info("Waiting for ComfyUI server (timeout=%ds)...", timeout)
     while time.time() < deadline:
         try:
@@ -218,18 +262,18 @@ def _wait_ready(timeout: int = 600):
             pass
         time.sleep(2)
 
-    # Then wait for models to be available
-    logger.info("Checking model files...")
-    while time.time() < deadline:
-        missing = [m for m in _REQUIRED_MODELS if not os.path.isfile(os.path.join(_MODEL_DIR, m))]
-        if not missing:
-            logger.info("All models are present.")
-            _COMFYUI_READY = True
-            return
-        logger.info("Waiting for %d models: %s...", len(missing), ", ".join(m.split("/")[-1] for m in missing[:3]))
-        time.sleep(10)
+    # Download missing models with Python (proper error logging)
+    for rel_path, info in _REQUIRED_MODELS.items():
+        full_path = os.path.join(_MODEL_DIR, rel_path)
+        if os.path.isfile(full_path) and os.path.getsize(full_path) > 0:
+            continue
+        if time.time() > deadline:
+            raise RuntimeError(f"Timeout — model {rel_path} not found after {timeout}s")
+        if not _download_model(rel_path, info):
+            raise RuntimeError(f"Failed to download {rel_path}")
 
-    raise RuntimeError(f"ComfyUI/models not ready within {timeout}s")
+    _COMFYUI_READY = True
+    logger.info("All models are ready.")
 
 
 # ---------------------------------------------------------------------------
