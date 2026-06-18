@@ -32,17 +32,8 @@ RUN mkdir -p /ComfyUI/models/diffusion_models \
              /ComfyUI/models/vae \
              /ComfyUI/models/clip_vision
 
-# Pre-download the public (non-gated) FLUX assets at build time.
-# These are not gated on Hugging Face and are safe to bake into the image.
-RUN wget -q --show-progress \
-        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors" \
-        -O /ComfyUI/models/text_encoders/t5xxl_fp16.safetensors \
-    && wget -q --show-progress \
-        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors" \
-        -O /ComfyUI/models/text_encoders/clip_l.safetensors \
-    && wget -q --show-progress \
-        "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors" \
-        -O /ComfyUI/models/vae/ae.safetensors
+# Models are downloaded at container startup by entrypoint.sh
+# so they always reflect the latest URLs.
 
 # The gated FLUX.1 Fill [dev] model is downloaded at container startup
 # (see /worker/entrypoint.sh) using the HF_TOKEN environment variable.
