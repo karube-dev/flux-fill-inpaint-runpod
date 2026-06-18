@@ -13,6 +13,7 @@ import base64
 import binascii
 import logging
 import subprocess
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -79,17 +80,22 @@ def resolve_input(value, dest_dir: str, dest_filename: str) -> str:
 # ---------------------------------------------------------------------------
 def queue_prompt(prompt: dict) -> str:
     url = f"http://{SERVER_ADDRESS}:8188/prompt"
-    logger.info("Queuing prompt to %s", url)
     body = json.dumps({"prompt": prompt, "client_id": CLIENT_ID}).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        resp_body = resp.read().decode("utf-8")
-        if resp.status != 200:
-            raise RuntimeError(f"ComfyUI returned {resp.status}: {resp_body[:500]}")
-        data = json.loads(resp_body)
-        if "prompt_id" not in data:
-            raise RuntimeError(f"ComfyUI response missing prompt_id: {resp_body[:500]}")
-        return data["prompt_id"]
+    logger.info("Queuing prompt to %s (payload size: %d bytes)", url, len(body))
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp_body = resp.read().decode("utf-8")
+            data = json.loads(resp_body)
+            if "prompt_id" not in data:
+                raise RuntimeError(f"ComfyUI response missing prompt_id: {resp_body[:1000]}")
+            return data["prompt_id"]
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
+        logger.error("ComfyUI prompt rejected: HTTP %s - %s", e.code, error_body[:1000])
+        raise RuntimeError(
+            f"ComfyUI prompt rejected (HTTP {e.code}): {error_body[:1000]}"
+        ) from e
 
 
 def get_history(prompt_id: str) -> dict:
