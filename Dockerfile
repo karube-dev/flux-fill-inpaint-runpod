@@ -32,8 +32,10 @@ RUN mkdir -p /ComfyUI/models/diffusion_models \
              /ComfyUI/models/vae \
              /ComfyUI/models/clip_vision
 
-# Models are downloaded at container startup by entrypoint.sh
-# so they always reflect the latest URLs.
+# Pre-download public (non-gated) FLUX text encoders at build time.
+RUN huggingface-cli download comfyanonymous/flux_text_encoders \
+        t5xxl_fp16.safetensors clip_l.safetensors \
+        --local-dir /ComfyUI/models/text_encoders
 
 # The gated FLUX.1 Fill [dev] model is downloaded at container startup
 # (see /worker/entrypoint.sh) using the HF_TOKEN environment variable.
