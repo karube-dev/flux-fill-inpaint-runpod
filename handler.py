@@ -301,4 +301,37 @@ def _compose_alpha_mask(image_path: str, mask_path: str, work_dir: str) -> str:
     return target
 
 
-runpod.serverless.start({"handler": handler})
+def main():
+    """
+    Entry point with wait for RunPod platform env injection.
+    On serverless, RUNPOD_WEBHOOK_GET_JOB must be set before
+    runpod.serverless.start() is called, otherwise it enters local
+    mode and exits immediately with code 1.
+    """
+    import sys as _sys, os as _os, time as _time
+
+    logger.info("Waiting for RunPod platform env vars...")
+    max_wait = 120
+    waited = 0
+    while waited < max_wait:
+        job_url = _os.environ.get("RUNPOD_WEBHOOK_GET_JOB")
+        if job_url:
+            logger.info(f"Platform env vars detected after {waited:.0f}s")
+            break
+        _time.sleep(2)
+        waited += 2
+        if waited % 10 == 0:
+            logger.info(f"Still waiting... ({waited:.0f}s)")
+
+    if waited >= max_wait:
+        logger.warning(
+            "RUNPOD_WEBHOOK_GET_JOB not set after %ds — "
+            "running in best-effort mode (may exit if no test_input.json)",
+            max_wait,
+        )
+
+    runpod.serverless.start({"handler": handler})
+
+
+if __name__ == "__main__":
+    main()
